@@ -1,0 +1,332 @@
+# Pipeline: DHS + WorldClim climate data — Under-5 child mortality (Honduras & Nicaragua)
+# Tasks   : boundary check | DHS labels | region matching | extraction test | full precipitation extraction
+
+import sys, io, re, pathlib, unicodedata, time
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+import rasterio
+from rasterio.mask import mask as rio_mask
+from shapely.geometry import mapping as shapely_mapping
+from exactextract import exact_extract
+from rasterstats import zonal_stats
+from rapidfuzz import process as rf_process, fuzz as rf_fuzz
+
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+ROOT            = pathlib.Path(r"") / "Child mortality and climate"  # ← INSERT YOUR ROOT PATH HERE (all other paths build from this)
+GIS_DIR         = ROOT / "Data" / "GIS maps"
+DHS_PATH        = ROOT / "Data" / "IPUMS-DHS" / "dhs_nic_hn_4waves.dta"
+PROCESSED_DIR   = ROOT / "Data" / "processed"
+CLIMATE_ROOT    = ROOT / "Data" / "Raw climate data"
+OUT_MAPPING_CSV = PROCESSED_DIR / "region_mapping.csv"
+OUT_MAPPING_GEO = PROCESSED_DIR / "region_mapping.geojson"
+OUT_PRECIP_CSV  = PROCESSED_DIR / "worldclim_regional_monthly.csv"
+
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
+def fix_encoding(s):
+    # Labels stored as UTF-8 bytes decoded as latin-1 — re-encode to recover accents
+    try:    return s.encode("latin-1").decode("utf-8")
+    except: return s
+
+def get_labels(raw_labels, var):
+    return {int(k): fix_encoding(v) for k, v in raw_labels.get(var.upper(), {}).items()}
+
+def normalize(s):
+    nfd = unicodedata.normalize("NFD", s.lower().strip())
+    return "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+
+# ===========================================================================
+# Inspect administrative boundary files
+# ===========================================================================
+
+for folder in [PROCESSED_DIR, ROOT / "Output" / "tables", ROOT / "Output" / "figures"]:
+    folder.mkdir(parents=True, exist_ok=True)
+    print(f"  [OK] {folder}")
+print()
+
+GDF = {"HN": gpd.read_file(GIS_DIR / "hn.json"), "NIC": gpd.read_file(GIS_DIR / "ni.json")}
+
+for country, gdf, expected, file in [("Honduras",  GDF["HN"], 18, "hn.json"),
+                                       ("Nicaragua", GDF["NIC"], 17, "ni.json")]:
+    path = GIS_DIR / file
+    print(f"--- {country} | {file}  ({path.stat().st_size / 1024:.0f} KB) ---")
+    n    = len(gdf)
+    flag = "OK" if n == expected else f"WARNING — expected {expected}"
+    print(f"  Features   : {n}  [{flag}]")
+    print(f"  Columns    : {list(gdf.columns)}")
+    epsg = gdf.crs.to_epsg() if gdf.crs else 4326
+    print(f"  CRS        : EPSG:{epsg}  {'[OK]' if epsg == 4326 else '[WARNING]'}")
+    minx, miny, maxx, maxy = gdf.total_bounds
+    print(f"  Extent     : lon [{minx:.4f}, {maxx:.4f}]  lat [{miny:.4f}, {maxy:.4f}]")
+    invalid = (~gdf.geometry.is_valid).sum()
+    print(f"  Invalid    : {invalid}  {'[OK]' if invalid == 0 else '[WARNING]'}")
+    print(f"  Geom types : {gdf.geometry.geom_type.value_counts().to_dict()}")
+    if "name" in gdf.columns:
+        print(f"  Regions ({n}):  " + ", ".join(sorted(gdf["name"])))
+    print()
+
+# ===========================================================================
+# Inspect DHS region variables
+# ===========================================================================
+
+reader     = pd.io.stata.StataReader(DHS_PATH)
+raw_labels = reader.value_labels()
+var_labels = reader.variable_labels()
+
+dhs_df = pd.read_stata(DHS_PATH, convert_categoricals=False)
+print(f"File  : {DHS_PATH.name}  ({DHS_PATH.stat().st_size / (1024**2):.1f} MB)")
+print(f"Shape : {dhs_df.shape[0]:,} rows x {dhs_df.shape[1]} columns\n")
+
+print("Observations by country:")
+for code, n in dhs_df["country"].value_counts().sort_index().items():
+    label = {340: "Honduras (340)", 558: "Nicaragua (558)"}.get(int(code), code)
+    print(f"  {label:<25} : {n:>6,}")
+
+print("\nObservations by year:")
+for yr, n in dhs_df["year"].value_counts().sort_index().items():
+    print(f"  {int(yr):<6} : {n:>6,}")
+
+for var in ["geo_hn2005_2011", "geo_nc1998_2001"]:
+    region_labels = get_labels(raw_labels, var)
+    print(f"\n--- {var} ---  ({len(region_labels)} regions)")
+    print(f"  {var_labels.get(var, '')}")
+    code_counts = dhs_df[var].value_counts().sort_index()
+    print(f"  {'Code':>6}  {'N obs':>7}  Region")
+    for code, lbl in sorted(region_labels.items()):
+        print(f"  {code:>6}  {int(code_counts.get(code, 0)):>7,}  {lbl}")
+    print(f"  Zeros: {int((dhs_df[var]==0).sum())}   Missing: {int(dhs_df[var].isna().sum())}")
+
+print("\n--- Known DHS vs GeoJSON mismatches ---")
+for country, dhs, geojson, note in [
+    ("HN",  "cortés, san pedro sula",                     "Cortés",           "DHS includes city name"),
+    ("HN",  "francisco morazán, distrito central",         "Francisco Morazán","DHS includes district"),
+    ("NIC", "north atlantic autonomous region (raan)",     "Atlántico Norte",  "English vs Spanish"),
+    ("NIC", "south atlantic autonomous region (raas)",     "Atlántico Sur",    "English vs Spanish"),
+    ("NIC", "esteli",                                      "Estelí",           "Missing accent in DHS"),
+]:
+    print(f"  {country}  DHS: '{dhs}'  ->  GeoJSON: '{geojson}'  [{note}]")
+
+# ===========================================================================
+# Match DHS region labels to GeoJSON polygon names
+# ===========================================================================
+
+FUZZY_THRESHOLD = 85
+
+DHS_REGIONS = {"HN":  get_labels(raw_labels, "geo_hn2005_2011"),
+               "NIC": get_labels(raw_labels, "geo_nc1998_2001")}
+
+GEO_NAMES = {c: gdf["name"].tolist() for c, gdf in GDF.items()}
+NORM_GEO  = {c: {normalize(n): n for n in names} for c, names in GEO_NAMES.items()}
+
+OVERRIDES = {
+    ("HN",  normalize("cortés, san pedro sula"))               : "Cortés",
+    ("HN",  normalize("francisco morazán, distrito central"))   : "Francisco Morazán",
+    ("NIC", normalize("north atlantic autonomous region (raan)")): "Atlántico Norte",
+    ("NIC", normalize("south atlantic autonomous region (raas)")): "Atlántico Sur",
+}
+
+def match_region(country, code, label):
+    norm     = normalize(label)
+    norm_map = NORM_GEO[country]
+    if (country, norm) in OVERRIDES:
+        name = OVERRIDES[(country, norm)]
+        return {"country": country, "dhs_code": code, "dhs_label": label,
+                "geojson_name": name,
+                "geojson_id": GDF[country].loc[GDF[country]["name"] == name, "id"].iloc[0],
+                "match_type": "MANUAL", "score": 100}
+    if norm in norm_map:
+        name = norm_map[norm]
+        return {"country": country, "dhs_code": code, "dhs_label": label,
+                "geojson_name": name,
+                "geojson_id": GDF[country].loc[GDF[country]["name"] == name, "id"].iloc[0],
+                "match_type": "EXACT", "score": 100}
+    res = rf_process.extractOne(norm, list(norm_map.keys()),
+                                scorer=rf_fuzz.token_sort_ratio, score_cutoff=FUZZY_THRESHOLD)
+    if res:
+        best, score, _ = res
+        name = norm_map[best]
+        return {"country": country, "dhs_code": code, "dhs_label": label,
+                "geojson_name": name,
+                "geojson_id": GDF[country].loc[GDF[country]["name"] == name, "id"].iloc[0],
+                "match_type": "FUZZY", "score": round(score, 1)}
+    return {"country": country, "dhs_code": code, "dhs_label": label,
+            "geojson_name": "NO_MATCH", "geojson_id": "NO_MATCH",
+            "match_type": "NO_MATCH", "score": 0}
+
+print()
+match_records = []
+for country, labels_dict in DHS_REGIONS.items():
+    country_name = "Honduras" if country == "HN" else "Nicaragua"
+    print(f"--- {country_name} ({country}) — {len(labels_dict)} DHS regions vs {len(GEO_NAMES[country])} GeoJSON ---")
+    for code, label in sorted(labels_dict.items()):
+        rec = match_region(country, code, label)
+        match_records.append(rec)
+        flag = "  *** NO MATCH ***" if rec["match_type"] == "NO_MATCH" else ""
+        print(f"  {code:>4}  {rec['match_type']:>7}  {rec['score']:>5}  {label}  ->  {rec['geojson_name']}{flag}")
+    print()
+
+mapping_df = pd.DataFrame(match_records)
+mapping_df.to_csv(OUT_MAPPING_CSV, index=False, encoding="utf-8-sig")
+print(f"Saved: {OUT_MAPPING_CSV}  ({len(mapping_df)} rows)")
+
+gdfs_ann = []
+for country, gdf in GDF.items():
+    country_name = "Honduras" if country == "HN" else "Nicaragua"
+    sub    = mapping_df[mapping_df["country"] == country][["geojson_name", "dhs_code", "dhs_label"]]
+    merged = gdf.merge(sub, left_on="name", right_on="geojson_name", how="left")
+    merged["country"]      = country
+    merged["country_name"] = country_name
+    gdfs_ann.append(merged)
+
+regions = pd.concat(gdfs_ann, ignore_index=True)   # reused in-memory by Task 1D and 2A
+regions["dhs_code"] = regions["dhs_code"].astype(int)
+regions.to_file(OUT_MAPPING_GEO, driver="GeoJSON")
+print(f"Saved: {OUT_MAPPING_GEO}  ({len(regions)} polygons)")
+
+no_match = (mapping_df["match_type"] == "NO_MATCH").sum()
+print(f"\nTotal: {len(mapping_df)} regions  (expected 35)")
+print(f"  Exact: {(mapping_df['match_type']=='EXACT').sum()}  "
+      f"Fuzzy: {(mapping_df['match_type']=='FUZZY').sum()}  "
+      f"Manual: {(mapping_df['match_type']=='MANUAL').sum()}  "
+      f"No match: {no_match}")
+if no_match > 0:
+    print("ACTION REQUIRED: add entries to OVERRIDES and re-run")
+    for _, row in mapping_df[mapping_df["match_type"] == "NO_MATCH"].iterrows():
+        print(f"  {row['country']}  code={row['dhs_code']}  label='{row['dhs_label']}'")
+
+# ===========================================================================
+# Test area-weighted raster extraction (Cortes, HN, January 2005)
+# ===========================================================================
+
+TEST_TIF     = CLIMATE_ROOT / "wc2.1_cruts4.09_5m_prec_2000-2009" / "wc2.1_cruts4.09_5m_prec_2005-01.tif"
+TEST_COUNTRY = "HN"
+TEST_CODE    = 5    # Cortes
+
+# regions is already in memory from Task 1C — no disk read needed
+polygon = regions[(regions["country"] == TEST_COUNTRY) & (regions["dhs_code"] == TEST_CODE)].copy()
+row     = polygon.iloc[0]
+
+print(f"\n--- Task 1D: test polygon ---")
+print(f"  Region   : {row['geojson_name']}  (DHS code {int(row['dhs_code'])})")
+print(f"  Geometry : {row.geometry.geom_type}  |  CRS: {polygon.crs}")
+area_km2 = polygon.to_crs("EPSG:6362").geometry.area.iloc[0] / 1e6
+print(f"  Area     : {area_km2:,.0f} km2  (EPSG:6362 equal-area)")
+minx, miny, maxx, maxy = polygon.total_bounds
+print(f"  Extent   : lon [{minx:.4f}, {maxx:.4f}]  lat [{miny:.4f}, {maxy:.4f}]")
+
+with rasterio.open(TEST_TIF) as src:
+    pixel_deg = abs(src.transform.a)
+    tif_crs   = src.crs
+    print(f"\n--- TIF metadata: {TEST_TIF.name} ---")
+    print(f"  CRS        : {tif_crs}")
+    print(f"  Resolution : {pixel_deg:.4f} deg  (~{pixel_deg * 111:.1f} km)")
+    print(f"  NoData     : {src.nodata}  |  Dtype: {src.dtypes[0]}")
+    clipped, _ = rio_mask(src, [shapely_mapping(polygon.geometry.iloc[0])], crop=True, nodata=np.nan)
+    print(f"  Valid pixels in bbox: {int(np.isfinite(clipped[0]).sum())}")
+
+ee       = exact_extract(str(TEST_TIF), polygon, ["mean", "count", "sum", "coverage"],
+                          include_cols=["geojson_name", "dhs_code"], output="pandas")
+ee_mean  = float(ee["mean"].iloc[0])
+ee_count = float(ee["count"].iloc[0])
+cov_arr  = np.array(ee["coverage"].iloc[0], dtype=float)
+
+print(f"\n--- exactextract (area-weighted) ---")
+print(f"  Weighted mean   : {ee_mean:.3f} mm")
+print(f"  Effective pixels: {ee_count:.3f}  |  Partial: {int(((cov_arr>0) & (cov_arr<1)).sum())}")
+print(f"  Coverage        : min={cov_arr.min():.4f}  max={cov_arr.max():.4f}  sum={cov_arr.sum():.3f}")
+print(f"  Coverage histogram:")
+bins_h = [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0, 1.01]
+bins_l = ["0-0.10", "0.10-0.25", "0.25-0.50", "0.50-0.75", "0.75-0.90", "0.90-1.00", "=1.00"]
+hist, _ = np.histogram(cov_arr, bins=bins_h)
+for lbl, cnt in zip(bins_l, hist):
+    print(f"    {lbl:<12} : {cnt:>3}  {'#' * cnt}")
+
+rs      = zonal_stats(polygon, str(TEST_TIF), stats=["mean", "count", "min", "max"],
+                       nodata=np.nan, all_touched=False)[0]
+diff_mm  = abs(ee_mean - rs["mean"])
+diff_pct = diff_mm / rs["mean"] * 100 if rs["mean"] else float("nan")
+print(f"\n--- rasterstats (centroid) vs exactextract ---")
+print(f"  exactextract : {ee_mean:.3f} mm  |  rasterstats : {rs['mean']:.3f} mm")
+print(f"  Difference   : {diff_mm:.3f} mm  ({diff_pct:.2f}%)  {'[OK <5%]' if diff_pct < 5 else '[WARNING]'}")
+print(f"  Method confirmed for Task 2A: exactextract (fractional area weighting)")
+
+# ===========================================================================
+# Extract monthly regional precipitation (all TIFs x all regions)
+# ===========================================================================
+
+TIF_PATTERN = re.compile(r"wc2\.1_cruts4\.09_5m_prec_(\d{4})-(\d{2})\.tif$")
+
+all_tifs = sorted(
+    tif for folder in CLIMATE_ROOT.iterdir() if folder.is_dir()
+    for tif in folder.glob("*.tif") if TIF_PATTERN.search(tif.name)
+)
+print(f"\nTIF files found: {len(all_tifs)}")
+print(f"Expected rows: {len(all_tifs) * len(regions):,}  ({len(all_tifs)} TIFs x {len(regions)} regions)\n")
+
+# regions is already in memory from Task 1C — no disk read needed
+precip_records = []
+precip_errors  = []
+t0             = time.time()
+
+for i, tif_path in enumerate(all_tifs, 1):
+    m     = TIF_PATTERN.search(tif_path.name)
+    year  = int(m.group(1))
+    month = int(m.group(2))
+    try:
+        ee = exact_extract(str(tif_path), regions, ["mean", "count"],
+                            include_cols=["country", "dhs_code", "name"], output="pandas")
+        ee["year"]  = year
+        ee["month"] = month
+        precip_records.append(ee)
+    except Exception as err:
+        precip_errors.append({"tif": tif_path.name, "error": str(err)})
+        print(f"  [ERROR] {tif_path.name}: {err}")
+
+    if i % 30 == 0 or i == len(all_tifs):
+        elapsed   = time.time() - t0
+        remaining = (len(all_tifs) - i) / (i / elapsed) if elapsed > 0 else 0
+        print(f"  [{i:>3}/{len(all_tifs)}]  {year}-{month:02d}  "
+              f"elapsed={elapsed:.0f}s  remaining~{remaining:.0f}s")
+        sys.stdout.flush()
+
+df_precip = pd.concat(precip_records, ignore_index=True)
+df_precip = df_precip.rename(columns={"name": "region_name", "mean": "precip_mm", "count": "n_pixels_effective"})
+df_precip = df_precip[["country", "dhs_code", "region_name", "year", "month", "precip_mm", "n_pixels_effective"]]
+df_precip = df_precip.sort_values(["country", "dhs_code", "year", "month"]).reset_index(drop=True)
+df_precip.to_csv(OUT_PRECIP_CSV, index=False, encoding="utf-8-sig")
+print(f"\nSaved: {OUT_PRECIP_CSV}  ({len(df_precip):,} rows,  {OUT_PRECIP_CSV.stat().st_size / 1024:.0f} KB)")
+
+# Spot-check vs Task 1D
+spot = df_precip[(df_precip["country"] == "HN") & (df_precip["dhs_code"] == 5) &
+                  (df_precip["year"] == 2005) & (df_precip["month"] == 1)]
+val  = float(spot["precip_mm"].iloc[0])
+print(f"Spot-check Cortes Jan-2005: {val:.3f} mm  (Task 1D reference: {ee_mean:.3f} mm)  "
+      f"{'[OK]' if abs(val - ee_mean) < 0.01 else '[MISMATCH]'}")
+
+# Distribution by country
+for country in ["HN", "NIC"]:
+    sub = df_precip[df_precip["country"] == country]["precip_mm"]
+    print(f"\n{country}  n={len(sub):,}  min={sub.min():.1f}  mean={sub.mean():.1f}  "
+          f"median={sub.median():.1f}  max={sub.max():.1f}  zeros={int((sub == 0).sum())}")
+
+# Seasonal pattern
+print("\nMean precip by calendar month (all regions and years):")
+for mo, name in enumerate(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"], 1):
+    v = df_precip[df_precip["month"] == mo]["precip_mm"].mean()
+    print(f"  {name}  {v:>7.2f} mm  {'#' * int(v / 10)}")
+
+if precip_errors:
+    print(f"\nExtraction errors ({len(precip_errors)}):")
+    for e in precip_errors:
+        print(f"  {e['tif']}  ->  {e['error']}")
+
+elapsed_total = time.time() - t0
+print(f"\nTotal time: {elapsed_total:.1f}s  ({elapsed_total / 60:.1f} min)  "
+      f"|  Rate: {len(all_tifs) / elapsed_total:.1f} TIF/s")
