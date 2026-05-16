@@ -1,0 +1,36 @@
+﻿country,dhs_code,dhs_label,geojson_name,geojson_id,match_type,score
+HN,1,atlántida,Atlántida,HNAT,EXACT,100
+HN,2,colón,Colón,HNCL,EXACT,100
+HN,3,comayagua,Comayagua,HNCM,EXACT,100
+HN,4,copán,Copán,HNCP,EXACT,100
+HN,5,"cortés, san pedro sula",Cortés,HNCR,MANUAL,100
+HN,6,choluteca,Choluteca,HNCH,EXACT,100
+HN,7,el paraíso,El Paraíso,HNEP,EXACT,100
+HN,8,"francisco morazán, distrito central",Francisco Morazán,HNFM,MANUAL,100
+HN,9,gracias a dios,Gracias a Dios,HNGD,EXACT,100
+HN,10,intibucá,Intibucá,HNIN,EXACT,100
+HN,11,islas de la bahía,Islas de la Bahía,HNIB,EXACT,100
+HN,12,la paz,La Paz,HNLP,EXACT,100
+HN,13,lempira,Lempira,HNLE,EXACT,100
+HN,14,ocotepeque,Ocotepeque,HNOC,EXACT,100
+HN,15,olancho,Olancho,HNOL,EXACT,100
+HN,16,santa bárbara,Santa Bárbara,HNSB,EXACT,100
+HN,17,valle,Valle,HNVA,EXACT,100
+HN,18,yoro,Yoro,HNYO,EXACT,100
+NIC,5,nueva segovia,Nueva Segovia,NINS,EXACT,100
+NIC,10,jinotega,Jinotega,NIJI,EXACT,100
+NIC,20,madriz,Madriz,NIMD,EXACT,100
+NIC,25,esteli,Estelí,NIES,EXACT,100
+NIC,30,chinandega,Chinandega,NICI,EXACT,100
+NIC,35,leon,León,NILE,EXACT,100
+NIC,40,matagalpa,Matagalpa,NIMT,EXACT,100
+NIC,50,boaco,Boaco,NIBO,EXACT,100
+NIC,55,managua,Managua,NIMN,EXACT,100
+NIC,60,masaya,Masaya,NIMS,EXACT,100
+NIC,65,chontales,Chontales,NICO,EXACT,100
+NIC,70,granada,Granada,NIGR,EXACT,100
+NIC,75,carazo,Carazo,NICA,EXACT,100
+NIC,80,rivas,Rivas,NIRI,EXACT,100
+NIC,85,rio san juan,Rio San Juan,NISJ,EXACT,100
+NIC,91,north atlantic autonomous region (raan),Atlántico Norte,NIAN,MANUAL,100
+NIC,93,south atlantic autonomous region (raas),Atlántico Sur,NIAS,MANUAL,100
