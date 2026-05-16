@@ -1,0 +1,41 @@
+----------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\Eduardo\Documents\Portfolio\Child mortality and climate\Output\tables\Stata\cox_phtest_ad.txt
+  log type:  text
+ opened on:  16 May 2026, 11:24:45
+
+. estat phtest, detail
+
+Test of proportional-hazards assumption
+
+Time function: Analysis time
+--------------------------------------------------------
+             |        rho     chi2       df    Prob>chi2
+-------------+------------------------------------------
+z_precip_12m |   -0.05868     4.41        1       0.0358
+   1b.kidsex |          .        .        1           .
+    2.kidsex |   -0.01832     0.41        1       0.5222
+         age |    0.01380     0.26        1       0.6073
+   edyrtotal |   -0.07213     6.51        1       0.0107
+  1b.wealthq |          .        .        1           .
+   2.wealthq |   -0.06799     5.71        1       0.0169
+   3.wealthq |   -0.02634     0.89        1       0.3464
+   4.wealthq |   -0.06889     5.78        1       0.0162
+   5.wealthq |   -0.07278     6.04        1       0.0140
+    1b.urban |          .        .        1           .
+     2.urban |    0.03736     1.79        1       0.1808
+   country_n |   -0.04161     2.03        1       0.1544
+  1998b.year |          .        .        1           .
+   2001.year |   -0.04421     2.39        1       0.1224
+   2005.year |   -0.01118     0.15        1       0.6978
+  2011o.year |          .        .        1           .
+-------------+------------------------------------------
+ Global test |               43.00       12       0.0000
+--------------------------------------------------------
+
+. log close
+      name:  <unnamed>
+       log:  C:\Users\Eduardo\Documents\Portfolio\Child mortality and climate\Output\tables\Stata\cox_phtest_ad.txt
+  log type:  text
+ closed on:  16 May 2026, 11:24:46
+----------------------------------------------------------------------------------------------------------------------

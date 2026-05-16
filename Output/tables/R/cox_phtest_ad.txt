@@ -1,0 +1,12 @@
+=== PH assumption test: full model M4 ===
+
+              chisq df       p
+z_precip_12m  2.999  1   0.083
+kidsex        0.495  1   0.482
+age           1.789  1   0.181
+edyrtotal    23.464  1 1.3e-06
+wealthq      23.941  4 8.2e-05
+urban         2.199  1   0.138
+country_n     2.687  1   0.101
+year          1.397  2   0.497
+GLOBAL       41.924 12 3.4e-05

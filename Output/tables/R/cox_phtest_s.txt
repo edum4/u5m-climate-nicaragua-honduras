@@ -1,0 +1,12 @@
+=== PH assumption test: sensitivity model S4 (weighted) ===
+
+              chisq df       p
+z_precip_12m  1.952  1  0.1624
+kidsex        0.218  1  0.6406
+age           1.393  1  0.2379
+edyrtotal    36.551  1 1.5e-09
+wealthq      27.059  4 1.9e-05
+urban         5.514  1  0.0189
+country_n     6.683  1  0.0097
+year          2.468  2  0.2911
+GLOBAL       52.989 12 4.1e-07

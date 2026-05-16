@@ -1,0 +1,106 @@
+-----------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\Eduardo\Documents\Portfolio\Child mortality and climate\Output\tables\Stata\logrank_tests_stata.txt
+  log type:  text
+ opened on:  16 May 2026, 11:13:00
+
+. foreach v in country_n precip_q4 wealthq urban kidsex {
+  2.         sts test `v'
+  3. }
+
+        Failure _d: event==1
+  Analysis time _t: surv_time
+
+Equality of survivor functions
+Log-rank test
+
+          |  Observed       Expected
+country_n |    events         events
+----------+-------------------------
+Nicaragua |       629         507.63
+ Honduras |       590         711.37
+----------+-------------------------
+    Total |      1219        1219.00
+
+                    chi2(1) =  50.18
+                    Pr>chi2 = 0.0000
+
+        Failure _d: event==1
+  Analysis time _t: surv_time
+
+Equality of survivor functions
+Log-rank test
+
+             |  Observed       Expected
+precip_q4    |    events         events
+-------------+-------------------------
+ Q1 (driest) |       336         325.66
+          Q2 |       265         307.76
+          Q3 |       297         303.00
+Q4 (wettest) |       321         282.58
+-------------+-------------------------
+       Total |      1219        1219.00
+
+                       chi2(3) =  11.74
+                       Pr>chi2 = 0.0083
+
+        Failure _d: event==1
+  Analysis time _t: surv_time
+
+Equality of survivor functions
+Log-rank test
+
+        |  Observed       Expected
+wealthq |    events         events
+--------+-------------------------
+Poorest |       533         405.78
+ Poorer |       298         292.07
+ Middle |       193         216.84
+ Richer |       137         176.72
+Richest |        58         127.59
+--------+-------------------------
+  Total |      1219        1219.00
+
+                  chi2(4) =  90.31
+                  Pr>chi2 = 0.0000
+
+        Failure _d: event==1
+  Analysis time _t: surv_time
+
+Equality of survivor functions
+Log-rank test
+
+      |  Observed       Expected
+urban |    events         events
+------+-------------------------
+rural |       841         764.99
+urban |       378         454.01
+------+-------------------------
+Total |      1219        1219.00
+
+                chi2(1) =  20.46
+                Pr>chi2 = 0.0000
+
+        Failure _d: event==1
+  Analysis time _t: surv_time
+
+Equality of survivor functions
+Log-rank test
+
+       |  Observed       Expected
+kidsex |    events         events
+-------+-------------------------
+female |       531         594.13
+  male |       688         624.87
+-------+-------------------------
+ Total |      1219        1219.00
+
+                 chi2(1) =  13.20
+                 Pr>chi2 = 0.0003
+
+. log close
+      name:  <unnamed>
+       log:  C:\Users\Eduardo\Documents\Portfolio\Child mortality and climate\Output\tables\Stata\logrank_tests_stata.txt
+  log type:  text
+ closed on:  16 May 2026, 11:13:01
+-----------------------------------------------------------------------------------------------------------------------------------------

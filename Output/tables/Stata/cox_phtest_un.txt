@@ -1,0 +1,25 @@
+-----------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\Eduardo\Documents\Portfolio\Child mortality and climate\Output\tables\Stata\cox_phtest_un.txt
+  log type:  text
+ opened on:  16 May 2026, 11:13:11
+
+. estat phtest, detail
+
+Test of proportional-hazards assumption
+
+Time function: Analysis time
+--------------------------------------------------------
+             |        rho     chi2       df    Prob>chi2
+-------------+------------------------------------------
+z_precip_12m |   -0.04513     2.78        1       0.0952
+-------------+------------------------------------------
+ Global test |                2.78        1       0.0952
+--------------------------------------------------------
+
+. log close
+      name:  <unnamed>
+       log:  C:\Users\Eduardo\Documents\Portfolio\Child mortality and climate\Output\tables\Stata\cox_phtest_un.txt
+  log type:  text
+ closed on:  16 May 2026, 11:13:11
+-----------------------------------------------------------------------------------------------------------------------------------------
