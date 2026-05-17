@@ -55,6 +55,12 @@ toward a particular result.
 - **Reproducible pipeline:** modular scripts with a master do-file/R script.
 - **DHS microdata:** experience with multi-wave survey data, including data cleaning and construction of demographic indicators.
 
+## Data citation
+
+The DHS data used in this project comes from IPUMS-DHS and must be cited as follows:
+
+> Elizabeth Heger Boyle, Miriam King, Anna Bolgrien, and Devon Kristiansen. *IPUMS-Demographic and Health Surveys: Version 12* [dataset]. IPUMS and ICF, 2026. https://doi.org/10.18128/D080.V12
+
 ## Replication
 
 Each script defines its own root path at the top of the file (`local root` in Stata, `root <-` in R). To run the full pipeline or any individual script, update that line to match your local directory. No other changes are required.
