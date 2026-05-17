@@ -14,8 +14,9 @@ during the first year of life are associated with child mortality in any of the 
 
 This project aims to illustrate the workflow for a survival analysis linking individual-level
 data and climate exposure, from constructing the climate exposure model to estimating
-and robustness analysis. This exercise does not represent formal research oriented
-toward a particular result.
+and robustness analysis. This analysis does not take into account the hierarchical structure 
+of the climate exposure at regional level. For this, multilevel models would be a natural extension. 
+This exercise does not represent formal research oriented toward a particular result.
 
 ## Data
 
